@@ -44,6 +44,10 @@ module.exports = function (app) {
               title: 'OpenHASP node name to use for this path',
               default: 'plate',
             },
+            pages: {
+              type: 'string',
+              title: 'OpenHASP pages to send to this node in jsonl format',
+            },
             paths: {
               type: 'array',
               title: 'Signal K self paths to send (JSON format), selection 3) or 4) above',
@@ -113,6 +117,7 @@ module.exports = function (app) {
     plugin.client.on('connect', () => {
       app.debug('MQTT connected');
       app.setPluginStatus('MQTT Connected');
+      sendPagess(options);
       startSending(options, plugin.onStop);
     });
 
@@ -146,6 +151,20 @@ module.exports = function (app) {
 
     app.debug('Plugin stopped');
   };
+
+  function sendPagess(options) {
+    options.nodes.forEach(haspNode => {
+      publishMqtt(
+        'hasp/' + haspNode.nodename + '/command',
+        'jsonl ' + haspNode.pages,
+        {
+          qos: 1,
+          retain: true
+        }
+      )
+    });
+
+  }
 
   function startSending(options, onStop) {
     options.nodes.forEach(haspNode => {

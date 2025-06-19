@@ -4,9 +4,9 @@ const _ = require('underscore');
 module.exports = function (app) {
   var plugin = {};
 
-  plugin.id = 'signalk-mqtt-bridge';
-  plugin.name = 'Bridge between SignalK and MQTT';
-  plugin.description = 'SignalK Node server plugin that acts as a bridge between SignalK data and MQTT';
+  plugin.id = 'signalk-mqtt-openhasp';
+  plugin.name = 'Bridge between SignalK and OpenHASP using MQTT';
+  plugin.description = 'SignalK Node server plugin that acts as a bridge between SignalK data and OpenHASP using MQTT';
 
   // Infer system id
   // If mmsi is set, this will match the mmsi
@@ -14,7 +14,7 @@ module.exports = function (app) {
   plugin.systemId = app.selfId === undefined ? undefined : app.selfId.split(':').pop().split('-').pop();
 
   plugin.schema = {
-    title: 'SignalK <> MQTT Bridge',
+    title: 'SignalK <> OpenHASP Bridge',
     type: 'object',
     required: ['mqttBrokerAddress'],
     description: `SignalK will use system id ${plugin.systemId} to interact with MQTT`,
@@ -32,7 +32,35 @@ module.exports = function (app) {
         type: 'number',
         title: 'TTL of the MQTT keepalive in seconds',
         default: 60
-      }
+      },
+      paths: {
+        type: 'array',
+        title: 'Signal K self paths to send (JSON format), selection 3) or 4) above',
+        default: [{ path: 'navigation.position', interval: 60 }],
+        items: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              title: 'Signalk path',
+            },
+            nodename: {
+              type: 'string',
+              title: 'OpenHASP node name to use for this path',
+              default: 'plate',
+            },
+            keyword: {
+              type: 'string',
+              title: 'OpenHASP keyword to use for this path',
+            },
+            interval: {
+              type: 'number',
+              title:
+                'Minimum interval between updates for this path to be sent to the server',
+            },
+          },
+        },
+      },
     }
   };
 
@@ -77,7 +105,7 @@ module.exports = function (app) {
     plugin.client.on('connect', () => {
       app.debug('MQTT connected');
       app.setPluginStatus('MQTT Connected');
-      startBridge();
+      startSending(options, plugin.client, plugin.onStop);
     });
 
     plugin.client.on('close', () => {
@@ -111,20 +139,23 @@ module.exports = function (app) {
     app.debug('Plugin stopped');
   };
 
-  // Handle MQTT client connections or reconnections
-  function startBridge() {
-    plugin.client.subscribe('R/signalk/' + plugin.systemId + '/#');
-    plugin.client.subscribe('W/signalk/' + plugin.systemId + '/#');
-    plugin.client.subscribe('P/signalk/' + plugin.systemId + '/#');
-
-    // Indicate that the keepalive mechanism is supported
-    publishMqtt('N/signalk/' + plugin.systemId + '/keepalive', '1', {
-      retain: true
-    });
-
-    // Publish serial number
-    publishMqtt('N/signalk/' + plugin.systemId + '/system/Serial', plugin.systemId, {
-      retain: true
+  function startSending(options, client, onStop) {
+    options.paths.forEach(pathInterval => {
+      onStop.push(
+        app.streambundle
+          .getSelfBus(pathInterval.path)
+          .debounceImmediate(pathInterval.interval * 1000)
+          .onValue(normalizedPathValue => {
+            //outputMessages();
+            publishMqtt(
+              'hasp/' + pathInterval.nodename + '/command',
+               pathInterval.keyword + '=' + normalizedPathValue.value,
+              { qos: 1,
+                retain: true
+              }
+            )
+          })
+      );
     });
   }
 
@@ -146,6 +177,7 @@ module.exports = function (app) {
     }
 
     switch (action) {
+      /*
       case 'R':
         if (subTopic == 'keepalive') {
           handleKeepalive(message);
@@ -159,23 +191,13 @@ module.exports = function (app) {
       case 'P':
         handlePut(subTopic, message);
         break;
+      */
       default:
-        app.debug('Unknown action ' + action + '. Ignoring');
+      app.debug('Unknown action ' + action + '. Ignoring');
         break;
     }
   }
 
-  // Handles the keepalive read message. Will subscribe to any topics
-  // passed in the message payload, or to all if payload is empty
-  function handleKeepalive(message) {
-    if (message.length == 0) {
-      subscribeToTopic('#');
-    } else {
-      JSON.parse(message).forEach(topic => {
-        subscribeToTopic(topic);
-      });
-    }
-  }
 
   // Handles an incoming delta from SignalK
   function handleDelta(delta) {
@@ -204,96 +226,6 @@ module.exports = function (app) {
 
     // Publish message
     publishMqtt('N/signalk/' + plugin.systemId + '/' + subTopic, signalkDeltaToMqttMessage(delta));
-  }
-
-  // Handles writes from MQTT into SignalK
-  function handleWrite(topic, message) {
-    var topicParts = topic.split('/');
-
-    if (topicParts.length < 3) {
-      app.debug('Delta path should begin with a two parts context. Got: ' + topicParts.join('.'));
-      return;
-    }
-
-    if (topicParts[1] == 'self') {
-      topicParts[1] = app.selfId;
-    }
-
-    var context = [topicParts[0], topicParts[1]].join('.');
-    var path = topicParts.slice(2).join('.');
-    var value = Number(message);
-    if (isNaN(message)) {
-      value = message;
-    }
-
-    app.handleMessage(plugin.id, {
-      context: context,
-      updates: [
-        {
-          $source: 'mqtt',
-          values: [
-            {
-              path: path,
-              value: value
-            }
-          ]
-        }
-      ]
-    });
-  }
-
-  // Handles PUTs from MQTT into SignalK
-  function handlePut(topic, message) {
-    var putCb = function (resp) {
-      if (resp.statusCode > 299) app.debug('Error in PUT request (' + resp.statusCode + ' - ' + resp.state + '): ' + resp.message);
-    };
-
-    var value = Number(message);
-    if (isNaN(message)) {
-      value = message;
-    }
-
-    var topicParts = topic.split('/');
-    if (topicParts[1] == "self") {
-      app.putSelfPath(topicParts.slice(2).join('.'), value, putCb);
-    } else {
-      app.putPath(topicParts.join('.'), value, putCb);
-    }
-  }
-
-  // Handles reads from SignalK into MQTT
-  function handleRead(topic) {
-    var path = mqttTopicToSignalkPath(topic);
-    app.debug('Read SignalK path ' + path);
-
-    var data;
-    if (path.startsWith('vessels.self')) {
-      data = app.getSelfPath(path.substring(13))
-    } else {
-      data = app.getPath(path);
-    }
-
-    publishMqtt('N/signalk/' + plugin.systemId + '/' + topic, signalkDataToMqttMessage(data));
-  }
-
-  // Add MQTT subscription to deltas
-  function subscribeToTopic(topic) {
-    // First check if topic is already subscribed
-    for (var i = 0; i < plugin.subscriptions.length; i++) {
-      if (plugin.subscriptions[i].topic == topic) {
-        // If topic already subscribed, renew
-        app.debug('Renewing subscription to topic ' + plugin.subscriptions[i].topic);
-        plugin.subscriptions[i].expires = getNow() + plugin.keepaliveTtl;
-        return;
-      }
-    }
-
-    // Topic wasn't subscribed yet
-    app.debug('New subscription to topic ' + topic);
-    plugin.subscriptions.push({
-      topic: topic,
-      expires: getNow() + plugin.keepaliveTtl
-    });
   }
 
   // Expire subscriptions
@@ -342,20 +274,6 @@ module.exports = function (app) {
   // Translates a Signalk Path into an MQTT topic
   function signalkPathToMqttTopic(path) {
     return path.replace(/\./g, '/');
-  }
-
-  // Translates an MQTT topic into a Signalk Path
-  function mqttTopicToSignalkPath(topic) {
-    return topic.replace(/\//g, '.');
-  }
-
-  // Transforms a SingalK data object as an MQTT message
-  function signalkDataToMqttMessage(signalkData) {
-    if (signalkData === undefined) {
-      return null;
-    }
-
-    return JSON.stringify(signalkData);
   }
 
   // Sanitizes a SignalK delta to get rid of redundant data and converts it to a string

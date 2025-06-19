@@ -1,13 +1,13 @@
 {
-  "name": "signalk-mqtt-bridge",
-  "version": "0.3.2",
-  "description": "SignalK Node server plugin that acts as a bridge between SignalK data and MQTT",
+  "name": "signalk-mqtt-openhasp",
+  "version": "0.0.1",
+  "description": "SignalK Node server plugin that acts as a bridge between SignalK data and OpenHASP using MQTT",
   "main": "index.js",
   "keywords": [
     "signalk-node-server-plugin",
     "signalk-category-utility"
   ],
-  "author": "Iuri Aranda <iuri.aranda@gmail.com>",
+  "author": "Manuel Jung <manuel.jung@hotmail.com>",
   "license": "MIT",
   "dependencies": {
     "mqtt": "^4.3.7",
@@ -18,10 +18,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/iuriaranda/signalk-mqtt-bridge"
+    "url": "https://github.com/gzahl/signalk-mqtt-openhasp"
   },
   "bugs": {
-    "url": "https://github.com/iuriaranda/signalk-mqtt-bridge/issues"
+    "url": "https://github.com/gzahl/signalk-mqtt-openhasp/issues"
   },
-  "homepage": "https://github.com/iuriaranda/signalk-mqtt-bridge"
+  "homepage": "https://github.com/gzahl/signalk-mqtt-openhasp"
 }

@@ -5,7 +5,9 @@
   "main": "index.js",
   "keywords": [
     "signalk-node-server-plugin",
-    "signalk-category-utility"
+    "signalk-category-utility",
+    "signalk-category-hardware",
+    "signalk-category-instruments"
   ],
   "author": "Manuel Jung <manuel.jung@hotmail.com>",
   "license": "MIT",

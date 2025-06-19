@@ -33,35 +33,43 @@ module.exports = function (app) {
         title: 'TTL of the MQTT keepalive in seconds',
         default: 60
       },
-      paths: {
+      nodes: {
         type: 'array',
-        title: 'Signal K self paths to send (JSON format), selection 3) or 4) above',
-        default: [{ path: 'navigation.position', interval: 60 }],
+        title: 'Signal K self paths to send to OpenHASP',
         items: {
           type: 'object',
           properties: {
-            path: {
-              type: 'string',
-              title: 'Signalk path',
-            },
             nodename: {
               type: 'string',
               title: 'OpenHASP node name to use for this path',
               default: 'plate',
             },
-            keyword: {
-              type: 'string',
-              title: 'OpenHASP keyword to use for this path',
-            },
-            interval: {
-              type: 'number',
-              title:
-                'Minimum interval between updates for this path to be sent to the server',
+            paths: {
+              type: 'array',
+              title: 'Signal K self paths to send (JSON format), selection 3) or 4) above',
+              default: [{ path: 'electrical.batteries.1.voltage', interval: 2, keyword: 'p5b51.val' }],
+              items: {
+                type: 'object',
+                properties: {
+                  path: {
+                    type: 'string',
+                    title: 'Signalk path',
+                  },
+                  keyword: {
+                    type: 'string',
+                    title: 'OpenHASP keyword to use for this path',
+                  },
+                  interval: {
+                    type: 'number',
+                    title: 'Minimum interval between updates for this path to be sent to the server',
+                  },
+                },
+              },
             },
           },
         },
       },
-    }
+    },
   };
 
   // Functions to call when the plugin stops
@@ -105,7 +113,7 @@ module.exports = function (app) {
     plugin.client.on('connect', () => {
       app.debug('MQTT connected');
       app.setPluginStatus('MQTT Connected');
-      startSending(options, plugin.client, plugin.onStop);
+      startSending(options, plugin.onStop);
     });
 
     plugin.client.on('close', () => {
@@ -139,23 +147,25 @@ module.exports = function (app) {
     app.debug('Plugin stopped');
   };
 
-  function startSending(options, client, onStop) {
-    options.paths.forEach(pathInterval => {
-      onStop.push(
-        app.streambundle
-          .getSelfBus(pathInterval.path)
-          .debounceImmediate(pathInterval.interval * 1000)
-          .onValue(normalizedPathValue => {
-            //outputMessages();
-            publishMqtt(
-              'hasp/' + pathInterval.nodename + '/command',
-               pathInterval.keyword + '=' + normalizedPathValue.value,
-              { qos: 1,
-                retain: true
-              }
-            )
-          })
-      );
+  function startSending(options, onStop) {
+    options.nodes.forEach(haspNode => {
+      haspNode.paths.forEach(haspPath => {
+        onStop.push(
+          app.streambundle
+            .getSelfBus(haspPath.path)
+            .debounceImmediate(haspPath.interval * 1000)
+            .onValue(normalizedPathValue => {
+              publishMqtt(
+                'hasp/' + haspNode.nodename + '/command',
+                haspPath.keyword + '=' + normalizedPathValue.value,
+                {
+                  qos: 1,
+                  retain: true
+                }
+              )
+            })
+        );
+      });
     });
   }
 
@@ -193,7 +203,7 @@ module.exports = function (app) {
         break;
       */
       default:
-      app.debug('Unknown action ' + action + '. Ignoring');
+        app.debug('Unknown action ' + action + '. Ignoring');
         break;
     }
   }

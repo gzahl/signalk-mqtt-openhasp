@@ -50,7 +50,7 @@ module.exports = function (app) {
             },
             paths: {
               type: 'array',
-              title: 'Signal K self paths to send (JSON format), selection 3) or 4) above',
+              title: 'Signal K self paths to send to OpenHASP',
               default: [{ path: 'electrical.batteries.1.voltage', interval: 2, keyword: 'p5b51.val' }],
               items: {
                 type: 'object',
@@ -137,11 +137,6 @@ module.exports = function (app) {
         plugin.expireSubscriptionsInterval = undefined;
       });
     }
-
-    // Setup SignalK delta subscription
-    plugin.onStop.push(app.streambundle
-      .getBus()
-      .onValue(handleDelta));
   };
 
   // Handle plugin stop
@@ -228,35 +223,6 @@ module.exports = function (app) {
   }
 
 
-  // Handles an incoming delta from SignalK
-  function handleDelta(delta) {
-    if (
-      !('context' in delta) || typeof delta.context !== 'string' ||
-      !('path' in delta) || typeof delta.path !== 'string' ||
-      !('value' in delta)
-    ) {
-      app.debug('Malformed delta. Ignoring. ' + JSON.stringify(delta));
-      return;
-    }
-
-    var subTopic;
-    if (delta.context == 'vessels.' + app.selfId) {
-      subTopic = 'vessels/self/' + signalkPathToMqttTopic(delta.path);
-    } else {
-      subTopic = signalkPathToMqttTopic([delta.context, delta.path].join('.'));
-    }
-
-    if (!topicIsSubscribed(subTopic)) {
-      // No subscriptions for this topic. Ignoring
-      return;
-    }
-
-    app.debug('Got delta for topic ' + subTopic);
-
-    // Publish message
-    publishMqtt('N/signalk/' + plugin.systemId + '/' + subTopic, signalkDeltaToMqttMessage(delta));
-  }
-
   // Expire subscriptions
   function expireSubscriptions() {
     // Iterate from the back of the array so i keeps being valid
@@ -266,48 +232,6 @@ module.exports = function (app) {
         plugin.subscriptions.splice(i, 1);
       }
     }
-  }
-
-  // Checks if there's an active subscription for the incoming delta
-  function topicIsSubscribed(topic) {
-    return _.find(plugin.subscriptions, subs => {
-      return matchTopic(subs.topic, topic);
-    }) != undefined;
-  }
-
-  // Checks for a match between a topic and a topic subscription
-  // e.g. 'vessels/self/#' and 'vessels/self/navigation/position'
-  function matchTopic(topic1, topic2) {
-    var t1 = topic1.split('/');
-    var t2 = topic2.split('/');
-    for (var i = 0; i < Math.max(t1.length, t2.length); i++) {
-      if (i >= t1.length || i >= t2.length) {
-        return false;
-      }
-      if ([t1[i], t2[i]].includes('+')) {
-        continue;
-      }
-      if ([t1[i], t2[i]].includes('#')) {
-        return true
-      }
-      if (t1[i] == t2[i]) {
-        continue;
-      }
-
-      return false;
-    }
-
-    return true;
-  }
-
-  // Translates a Signalk Path into an MQTT topic
-  function signalkPathToMqttTopic(path) {
-    return path.replace(/\./g, '/');
-  }
-
-  // Sanitizes a SignalK delta to get rid of redundant data and converts it to a string
-  function signalkDeltaToMqttMessage(delta) {
-    return JSON.stringify(_.pick(delta, 'value', '$source', 'timestamp', 'isMeta'));
   }
 
   // Gets the current timestamp in seconds

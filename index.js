@@ -141,6 +141,13 @@ module.exports = function (app) {
 
   // Handle plugin stop
   plugin.stop = function () {
+    // Clean up MQTT client if it exists
+    if (plugin.client) {
+      plugin.client.removeAllListeners();
+      plugin.client.end();
+      plugin.client = undefined;
+    }
+
     plugin.onStop.forEach(f => f());
     plugin.onStop = [];
 

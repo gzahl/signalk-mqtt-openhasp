@@ -1,6 +1,6 @@
 {
   "name": "signalk-mqtt-openhasp",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "SignalK Node server plugin that acts as a bridge between SignalK data and OpenHASP using MQTT",
   "main": "index.js",
   "keywords": [
